@@ -176,32 +176,35 @@ def merging(input_filename: str, result_filename: str) -> None:
             start_pos = pos2
 
 
-def write_output(started_filename: str, temp_started_filename_1: str, temp_started_filename_2: str,  result_filename: str, output_filename: str) -> None:
-    with open(started_filename, "r", encoding="ascii") as started_file, \
-        open(temp_started_filename_1, "w", encoding="ascii") as temp_file:
-
-        for line in started_file:
-            temp_file.write(line)
+def write_output(started_filename: str, temp_file_1: str, temp_file_2: str,
+                 result_filename: str, output_filename: str) -> None:
     
-    with open(result_filename, "r", encoding="ascii") as result_file, \
-        open(output_filename, "w", encoding="ascii") as output_file:
+    with open(started_filename, "r", encoding="ascii") as f_in, \
+         open(temp_file_1, "w", encoding="ascii") as f_out:
+        for line in f_in:
+            f_out.write(line)
 
-        pos, value, is_end = read_to_smb(result_file, 0, " ")
-        while value != "":
-            with open(temp_started_filename_1, "r", encoding="ascii") as started_file_1, \
-                open(temp_started_filename_2, "w", encoding="ascii") as started_file_2:
+    with open(output_filename, "w", encoding="ascii") as out_file, \
+         open(result_filename, "r", encoding="ascii") as result_file:
+
+        for value in result_file.read().split():
+            
+            current_input = temp_file_1
+            current_output = temp_file_2
+
+            with open(current_input, "r", encoding="ascii") as f_in, \
+                 open(current_output, "w", encoding="ascii") as f_out:
 
                 is_written = False
-                for line in started_file_1:
+                for line in f_in:
                     number = line.split("|")[0]
-                    if value == number and not is_written:
-                        output_file.write(line)
+                    if number == value and not is_written:
+                        out_file.write(line)
                         is_written = True
                     else:
-                        started_file_2.write(line)
+                        f_out.write(line)
 
-            os.replace(temp_started_filename_2, temp_started_filename_1)
-            pos, value, is_end = read_to_smb(result_file, pos, " ")
+            os.replace(current_output, current_input)
 
 
 def calc_row_quant(needed_size_mb: int, min_number: int, text_len: int, min_year: int) -> int:
@@ -239,7 +242,7 @@ def main() -> None:
     MEMORY_LIMIT = 300 * 1024 * 1024 # 300 MB
     resource.setrlimit(resource.RLIMIT_AS, (MEMORY_LIMIT, MEMORY_LIMIT)) # Лише на UNIX-системах
 
-    DIR = "./pa-lab-1-temp/"
+    DIR = "./pa-lab-1/"
     TMP_DIR = DIR + ".temp/"
 
     INPUT = DIR + "input.txt"
@@ -263,7 +266,7 @@ def main() -> None:
     rows = calc_row_quant(size, min_key, text_len, min_year)
 
     start = time.time()
-    generate_file(rows, min_key, max_key, text_len, min_year, max_year, INPUT)
+    generate_file(50, min_key, max_key, text_len, min_year, max_year, INPUT)
     end = time.time()
     print(f"Started file \"{INPUT}\" was generated in {end-start} seconds")
 
@@ -280,7 +283,7 @@ def main() -> None:
     write_output(INPUT, TEMP_STARTED_1, TEMP_STARTED_2, first_file, OUTPUT)
     end = time.time()
     print(f"Algorithm was finished in {end-start} seconds")
-    print(f"Program is ended. Result in file \"{OUTPUT}\"")
+    print(f"Program is ended. Result is in file \"{OUTPUT}\"")
 
     if os.path.exists(TMP_DIR):
         shutil.rmtree(TMP_DIR)
