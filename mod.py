@@ -1,10 +1,9 @@
 import os
-import heapq
-import random
-import shutil
-from datetime import datetime, timedelta
 import time
+import shutil
 import resource
+from datetime import datetime, timedelta
+import random
 
 DIR = "./pa-lab-1/"
 TMP_DIR = DIR + ".temp/"
@@ -13,8 +12,6 @@ INPUT = DIR + "input.txt"
 OUTPUT = DIR + "output.txt"
 
 MEMORY_LIMIT = 300 * 1024 * 1024  # 300 MB
-BLOCK_SIZE = 100_000  # рядків на один блок (регулювати за ОП)
-
 resource.setrlimit(resource.RLIMIT_AS, (MEMORY_LIMIT, MEMORY_LIMIT))
 
 
@@ -36,51 +33,96 @@ def generate_file(rows: int, min_key: int, max_key: int, text_len: int, min_year
             f.write(f"{key}|{text}|{date.strftime('%Y-%m-%d')}\n")
 
 
-def split_into_sorted_blocks(input_file: str):
+def split_natural_runs(input_file: str):
+    """Робимо розбиття на природні зростаючі серії"""
     if not os.path.exists(TMP_DIR):
         os.makedirs(TMP_DIR)
 
     blocks = []
-    block = []
     block_index = 0
-
     with open(input_file, "r", encoding="ascii") as f:
+        prev_key = None
+        current_run = []
+
         for line in f:
-            block.append(line)
-            if len(block) >= BLOCK_SIZE:
-                block.sort(key=lambda x: int(x.split("|")[0]))
-                block_filename = os.path.join(TMP_DIR, f"block_{block_index}.txt")
+            key = int(line.split("|")[0])
+            if prev_key is not None and key < prev_key:
+                # Кінець серії
+                block_filename = os.path.join(TMP_DIR, f"run_{block_index}.txt")
                 with open(block_filename, "w", encoding="ascii") as bf:
-                    bf.writelines(block)
+                    bf.writelines(current_run)
                 blocks.append(block_filename)
                 block_index += 1
-                block.clear()
+                current_run = []
 
-    if block:
-        block.sort(key=lambda x: int(x.split("|")[0]))
-        block_filename = os.path.join(TMP_DIR, f"block_{block_index}.txt")
-        with open(block_filename, "w", encoding="ascii") as bf:
-            bf.writelines(block)
-        blocks.append(block_filename)
+            current_run.append(line)
+            prev_key = key
+
+        # остання серія
+        if current_run:
+            block_filename = os.path.join(TMP_DIR, f"run_{block_index}.txt")
+            with open(block_filename, "w", encoding="ascii") as bf:
+                bf.writelines(current_run)
+            blocks.append(block_filename)
 
     return blocks
 
 
-def merge_sorted_blocks(blocks, output_file: str):
-    open_files = [open(block, "r", encoding="ascii") for block in blocks]
+def merge_two_runs(file1: str, file2: str, output_file: str):
+    """Зливаємо дві серії у відсортований файл"""
+    with open(file1, "r", encoding="ascii") as f1, open(file2, "r", encoding="ascii") as f2, open(output_file, "w", encoding="ascii") as out:
+        line1 = f1.readline()
+        line2 = f2.readline()
+        while line1 and line2:
+            key1 = int(line1.split("|")[0])
+            key2 = int(line2.split("|")[0])
+            if key1 <= key2:
+                out.write(line1)
+                line1 = f1.readline()
+            else:
+                out.write(line2)
+                line2 = f2.readline()
+        # Додаємо залишки
+        while line1:
+            out.write(line1)
+            line1 = f1.readline()
+        while line2:
+            out.write(line2)
+            line2 = f2.readline()
 
-    def key_generator(f):
-        for line in f:
-            yield int(line.split("|")[0]), line
 
-    merged = heapq.merge(*[key_generator(f) for f in open_files], key=lambda x: x[0])
+def merge_runs(blocks):
+    """Ітеративне злиття всіх серій, поки не отримаємо один файл"""
+    while len(blocks) > 1:
+        new_blocks = []
+        for i in range(0, len(blocks), 2):
+            if i + 1 < len(blocks):
+                merged_file = os.path.join(TMP_DIR, f"merged_{i//2}.txt")
+                merge_two_runs(blocks[i], blocks[i + 1], merged_file)
+                new_blocks.append(merged_file)
+            else:
+                # якщо непарна кількість, просто переносимо останній блок
+                new_blocks.append(blocks[i])
+        blocks = new_blocks
+    return blocks[0]
 
-    with open(output_file, "w", encoding="ascii") as out:
-        for _, line in merged:
-            out.write(line)
 
-    for f in open_files:
-        f.close()
+def write_output(started_filename: str, sorted_filename: str, output_filename: str):
+    """Переписуємо повні рядки з оригінального файлу за відсортованими ключами"""
+    with open(started_filename, "r", encoding="ascii") as orig_file, \
+         open(sorted_filename, "r", encoding="ascii") as sorted_file, \
+         open(output_filename, "w", encoding="ascii") as out_file:
+
+        data_map = {}
+        for line in orig_file:
+            key = int(line.split("|")[0])
+            if key not in data_map:
+                data_map[key] = []
+            data_map[key].append(line)
+
+        for line in sorted_file:
+            key = int(line.split("|")[0])
+            out_file.write(data_map[key].pop(0))
 
 
 def calc_row_quant(needed_size_mb: int, min_number: int, text_len: int, min_year: int) -> int:
@@ -120,13 +162,15 @@ def main():
     generate_file(rows, min_key, max_key, text_len, min_year, max_year, INPUT)
     print(f"File generated in {time.time()-start:.2f} sec")
 
+    # Натуральне сортування
+    runs = split_natural_runs(INPUT)
+    sorted_file = merge_runs(runs)
+
     start = time.time()
-    blocks = split_into_sorted_blocks(INPUT)
-    merge_sorted_blocks(blocks, OUTPUT)
+    write_output(INPUT, sorted_file, OUTPUT)
+    shutil.rmtree(TMP_DIR)
     print(f"Sorting finished in {time.time()-start:.2f} sec")
     print(f"Result saved to {OUTPUT}")
-
-    shutil.rmtree(TMP_DIR)
 
 
 if __name__ == "__main__":
