@@ -2,7 +2,6 @@ from datetime import datetime, timedelta
 from typing import Tuple
 import os
 import time
-import math
 import shutil
 import random
 import resource
@@ -50,9 +49,11 @@ def next_row(file, pos: int) -> int:
     return point
 
 
-def read_to_smb(file, pos: int, smb: str) -> Tuple[int, str, bool]:
+def read_to_smb(file, smb: str, pos: int = None) -> Tuple[int, str, bool]:
+    if pos is not None:
+        file.seek(pos)
+    
     is_next_row = False
-    file.seek(pos)
     value_chars = []
 
     char = file.read(1)
@@ -61,10 +62,8 @@ def read_to_smb(file, pos: int, smb: str) -> Tuple[int, str, bool]:
         char = file.read(1)
     
     is_next_row = char == "\n"
-
-    point = file.tell()
-    file.seek(pos)
-    return (point, "".join(value_chars), is_next_row)
+    
+    return (file.tell(), "".join(value_chars), is_next_row)
 
 
 def check_end_algo(filename: str) -> bool:
@@ -102,12 +101,12 @@ def merging(input_filename: str, result_filename: str) -> None:
 
         start_pos = 0
         while start_pos != next_row(input_file, start_pos):
-            pos1, value1, is_end1 = read_to_smb(input_file, start_pos, " ")
+            pos1, value1, is_end1 = read_to_smb(input_file, " ", start_pos)
             value1 = int(value1)
             
             pos2 = next_row(input_file, start_pos)
             if pos2 != next_row(input_file, pos2):
-                pos2, value2, is_end2 = read_to_smb(input_file, pos2, " ")
+                pos2, value2, is_end2 = read_to_smb(input_file, " ", pos2)
                 value2 = int(value2)
 
                 exhausted1 = False
@@ -121,7 +120,7 @@ def merging(input_filename: str, result_filename: str) -> None:
                         if is_end1:
                             exhausted1 = True
                         else:
-                            pos1, value1, is_end1 = read_to_smb(input_file, pos1, " ")
+                            pos1, value1, is_end1 = read_to_smb(input_file, " ", pos1)
                             value1 = int(value1)
                     else:
                         if not is_first_value:
@@ -131,7 +130,7 @@ def merging(input_filename: str, result_filename: str) -> None:
                         if is_end2:
                             exhausted2 = True
                         else:
-                            pos2, value2, is_end2 = read_to_smb(input_file, pos2, " ")
+                            pos2, value2, is_end2 = read_to_smb(input_file, " ", pos2)
                             value2 = int(value2)
                     is_first_value = False
                 
@@ -144,7 +143,7 @@ def merging(input_filename: str, result_filename: str) -> None:
                     if is_end1:
                         exhausted1 = True
                     else:
-                        pos1, value1, is_end1 = read_to_smb(input_file, pos1, " ")
+                        pos1, value1, is_end1 = read_to_smb(input_file, " ", pos1)
                         value1 = int(value1)
 
                 while not exhausted2:
@@ -156,7 +155,7 @@ def merging(input_filename: str, result_filename: str) -> None:
                     if is_end2:
                         exhausted2 = True
                     else:
-                        pos2, value2, is_end2 = read_to_smb(input_file, pos2, " ")
+                        pos2, value2, is_end2 = read_to_smb(input_file, " ", pos2)
                         value2 = int(value2)
             else:
                 exhausted1 = False
@@ -170,53 +169,43 @@ def merging(input_filename: str, result_filename: str) -> None:
                     if is_end1:
                         exhausted1 = True
                     else:
-                        pos1, value1, is_end1 = read_to_smb(input_file, pos1, " ")
+                        pos1, value1, is_end1 = read_to_smb(input_file, " ", pos1)
                         value1 = int(value1)
             result_file.write("\n")
             start_pos = pos2
 
 
-def write_output(started_filename: str, temp_file_1: str, temp_file_2: str,
-                 result_filename: str, output_filename: str) -> None:
-    
-    with open(started_filename, "r", encoding="ascii") as f_in, \
-         open(temp_file_1, "w", encoding="ascii") as f_out:
-        for line in f_in:
-            f_out.write(line)
+def write_output(started_filename: str, result_filename: str, output_filename: str) -> None:
+    with open(started_filename, "r", encoding="ascii") as started_file, \
+        open(result_filename, "r", encoding="ascii") as result_file, \
+        open(output_filename, "w", encoding="ascii") as output_file:
 
-    with open(output_filename, "w", encoding="ascii") as out_file, \
-         open(result_filename, "r", encoding="ascii") as result_file:
+        visited = set()
+        pos, value, is_end = read_to_smb(result_file, " ")
+        while value != "":
+            iter = 0
+            for line in started_file:
+                number = line.split("|")[0]
+                if value == number and iter not in visited:
+                    output_file.write(line)
+                    visited.add(iter)
+                    break
+                iter += 1
 
-        for value in result_file.read().split():
-            
-            current_input = temp_file_1
-            current_output = temp_file_2
-
-            with open(current_input, "r", encoding="ascii") as f_in, \
-                 open(current_output, "w", encoding="ascii") as f_out:
-
-                is_written = False
-                for line in f_in:
-                    number = line.split("|")[0]
-                    if number == value and not is_written:
-                        out_file.write(line)
-                        is_written = True
-                    else:
-                        f_out.write(line)
-
-            os.replace(current_output, current_input)
+            pos, value, is_end = read_to_smb(result_file, " ")
+            started_file.seek(0)
 
 
-def calc_row_quant(needed_size_mb: int, min_number: int, text_len: int, min_year: int) -> int:
-    BYTES_IN_MB = 1000000
+def calc_row_quant(needed_size_mb: int, max_number: int, text_len: int) -> int:
+    BYTES_IN_MB = 1_000_000
     needed_size_bytes = needed_size_mb * BYTES_IN_MB
 
-    ROW_SEPARATORS = 2
-    DATE_SEPARATORS = 2
-    DAY_LEN = 2
-    MONTH_LEN = 2
-    row_weight = ROW_SEPARATORS + DATE_SEPARATORS + DAY_LEN + MONTH_LEN + len(str(min_number)) + len(str(text_len)) + len(str(min_year))
-    return math.ceil(needed_size_bytes / row_weight)
+    key_len = len(str(max_number))
+    date_len = 10
+    row_separators = 3
+
+    row_weight = key_len + text_len + date_len + row_separators
+    return needed_size_bytes // row_weight
 
 
 def validate_input(msg: str, min_numb: int, max_numb: int) -> int:
@@ -249,24 +238,22 @@ def main() -> None:
     OUTPUT = DIR + "output.txt"
     TEMP_FILE_1 = TMP_DIR + "f1.txt"
     TEMP_FILE_2 = TMP_DIR + "f2.txt"
-    TEMP_STARTED_1 = TMP_DIR + "st-f1.txt"
-    TEMP_STARTED_2 = TMP_DIR + "st-f2.txt"
 
     if os.path.exists(DIR):
         shutil.rmtree(DIR)
     os.mkdir(DIR)
     os.mkdir(TMP_DIR)
 
-    size = validate_input("Input exemplary size of the input file (Mb)", 10, 2000)
-    min_key = validate_input("Input min key (Mb)", 0, 1000000000)
-    max_key = validate_input("Input max key (Mb)", min_key, 1000000000)
+    size = validate_input("Input exemplary size of the input file (Mb)", 1, 2000)
+    min_key = validate_input("Input min key", 0, 1000000000)
+    max_key = validate_input("Input max key", min_key, 1000000000)
     text_len = validate_input("Input length of text", 1, 20)
     min_year = validate_input("Input min year", 1, 2025)
     max_year = validate_input("Input min year", min_year, 2025)
-    rows = calc_row_quant(size, min_key, text_len, min_year)
+    rows = calc_row_quant(size, max_key, text_len)
 
     start = time.time()
-    generate_file(50, min_key, max_key, text_len, min_year, max_year, INPUT)
+    generate_file(rows, min_key, max_key, text_len, min_year, max_year, INPUT)
     end = time.time()
     print(f"Started file \"{INPUT}\" was generated in {end-start} seconds")
 
@@ -280,7 +267,7 @@ def main() -> None:
         first_file = TEMP_FILE_2 if first_file == TEMP_FILE_1 else TEMP_FILE_1
         second_file = TEMP_FILE_2 if second_file == TEMP_FILE_1 else TEMP_FILE_1
     
-    write_output(INPUT, TEMP_STARTED_1, TEMP_STARTED_2, first_file, OUTPUT)
+    write_output(INPUT, first_file, OUTPUT)
     end = time.time()
     print(f"Algorithm was finished in {end-start} seconds")
     print(f"Program is ended. Result is in file \"{OUTPUT}\"")
